@@ -1,0 +1,3 @@
+# Checks deliberately skipped for this dev blueprint — each one is a decision, not an oversight.
+# See "Security decisions" in README.md.
+skip-check: []
