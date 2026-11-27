@@ -26,10 +26,62 @@ resource "aws_security_group" "db" {
   }
 }
 
+data "aws_caller_identity" "current" {}
+
 resource "aws_kms_key" "db" {
   description             = "${var.name} database encryption"
   enable_key_rotation     = true
   deletion_window_in_days = 7
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "AccountAdmins"
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+      Action    = "kms:*"
+      Resource  = "*"
+    }]
+  })
+}
+
+# Slow and schema-changing queries go to CloudWatch Logs
+resource "aws_db_parameter_group" "this" {
+  name   = "${var.name}-pg16"
+  family = "postgres16"
+
+  # Reject unencrypted client connections
+  parameter {
+    name  = "rds.force_ssl"
+    value = "1"
+  }
+
+  parameter {
+    name  = "log_statement"
+    value = "ddl"
+  }
+
+  parameter {
+    name  = "log_min_duration_statement"
+    value = "500" # ms
+  }
+}
+
+# Enhanced monitoring: OS-level metrics every 60 s
+resource "aws_iam_role" "monitoring" {
+  name = "${var.name}-rds-monitoring"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "monitoring.rds.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "monitoring" {
+  role       = aws_iam_role.monitoring.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole"
 }
 
 resource "aws_db_instance" "this" {
@@ -49,6 +101,10 @@ resource "aws_db_instance" "this" {
   # The password is generated and stored by AWS in Secrets Manager — never in Terraform state or code
   manage_master_user_password = true
 
+  parameter_group_name = aws_db_parameter_group.this.name
+  monitoring_interval  = 60
+  monitoring_role_arn  = aws_iam_role.monitoring.arn
+
   db_subnet_group_name   = aws_db_subnet_group.this.name
   vpc_security_group_ids = [aws_security_group.db.id]
   publicly_accessible    = false
@@ -61,8 +117,8 @@ resource "aws_db_instance" "this" {
   final_snapshot_identifier  = var.deletion_protection ? "${var.name}-final" : null
   auto_minor_version_upgrade = true
 
-  performance_insights_enabled          = true
-  performance_insights_kms_key_id       = aws_kms_key.db.arn
-  iam_database_authentication_enabled   = true
-  enabled_cloudwatch_logs_exports       = ["postgresql"]
+  performance_insights_enabled        = true
+  performance_insights_kms_key_id     = aws_kms_key.db.arn
+  iam_database_authentication_enabled = true
+  enabled_cloudwatch_logs_exports     = ["postgresql"]
 }

@@ -1,3 +1,11 @@
-# Checks deliberately skipped for this dev blueprint — each one is a decision, not an oversight.
-# See "Security decisions" in README.md.
-skip-check: []
+# Checks deliberately skipped for this DEV blueprint. Each is a cost / environment decision,
+# switched on for production through variables (see "Security decisions" in README.md).
+skip-check:
+  - CKV_AWS_157    # RDS Multi-AZ: off in dev to halve cost; var.multi_az = true in prod
+  - CKV_AWS_293    # RDS deletion protection: off in dev so the stack can be torn down; var.deletion_protection in prod
+  - CKV_AWS_150    # ALB deletion protection: same as above
+  - CKV2_AWS_28    # WAF on public ALB: paid add-on, recommended for prod
+  - CKV_AWS_91     # ALB access logs: needs a log bucket; enable for prod
+  - CKV_AWS_338    # 1-year log retention: 30 days is enough for a dev environment
+  - CKV_AWS_158    # KMS-encrypted log group: default CloudWatch encryption is used in dev
+  - CKV_AWS_394    # Pinning AZ ids: az_count already limits how many AZs are used
